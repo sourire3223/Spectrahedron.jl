@@ -1,0 +1,14 @@
+name = "spectrahedron.jl"
+authors = ["Chien-Ming Lin <chienminglin3223@gmail.com>"]
+
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Format = "1fa38f19-a742-5d3f-a2b9-30dd87b9d5f8"
+Kronecker = "2c470bb0-bcc8-11e8-3dad-c9649493f05e"
+KrylovKit = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
+Tullio = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
