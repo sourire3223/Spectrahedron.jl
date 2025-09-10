@@ -16,6 +16,11 @@ function update_output!(output, index, t, fval, time)
 	output["elapsed_time"][index] = time
 end
 
+function trim_output!(output, len::Integer)
+	for (_, v) in output
+		resize!(v, len)
+	end
+end
 
 function print_output(io, output, index, verbose)
 	@printf(

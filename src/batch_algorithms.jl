@@ -3,6 +3,7 @@ using KrylovKit
 using LinearAlgebra
 using Printf
 using TimerOutputs
+using Tullio
 include("./utils.jl")
 
 
@@ -26,9 +27,9 @@ end
 function PGD(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
-	loss_func,
-	gradient,
-	loss_and_gradient = nothing,
+	loss_func::Function,
+	gradient::Function,
+	loss_and_gradient::Union{Function,Nothing} = nothing,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "PGD"
 	println(name * " starts.")
@@ -60,16 +61,17 @@ function PGD(
 
 			ρα = euclidean_projection(ρα)
 			round = 0
-			while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 10
+			while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 30
 				α *= r
 				ρα .= ρ - α * g
 				ρα = euclidean_projection(ρα)
 				round += 1
 			end
-			if round < 10
+			if round < 30
 				ρ = ρα
 			else
-				ρ = ρ
+				trim_output!(output, t-1)
+				break
 			end
 		end
 
@@ -82,9 +84,9 @@ end
 function EMD(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
-	loss_func,
-	gradient,
-	loss_and_gradient = nothing,
+	loss_func::Function,
+	gradient::Function,
+	loss_and_gradient::Union{Function,Nothing} = nothing,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "EMD"
 	println(name * " starts.")
@@ -115,17 +117,19 @@ function EMD(
 			α = α0
 			ρα = exp(Hermitian(log(ρ)) - α * g) # prevent wrong return type, https://github.com/JuliaLang/LinearAlgebra.jl/blob/98723dff52d8a3003822cb43e28910fbde9c73f0/src/symmetric.jl#L950C1-L959C4
 			ρα /= tr(ρα)
+
 			round = 0
-			while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 10
+			while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 30
 				α *= r
 				ρα .= exp(Hermitian(log(ρ)) - α * g) # prevent wrong return type, https://github.com/JuliaLang/LinearAlgebra.jl/blob/98723dff52d8a3003822cb43e28910fbde9c73f0/src/symmetric.jl#L950C1-L959C4
 				ρα /= tr(ρα)
 				round += 1
 			end
-			if round < 10
+			if round < 30
 				ρ = ρα
 			else
-				ρ = ρ
+				trim_output!(output, t-1)
+				break
 			end
 		end
 
@@ -147,9 +151,9 @@ end
 function FW(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
-	loss_func,
-	gradient,
-	loss_and_gradient = nothing,
+	loss_func::Function,
+	gradient::Function,
+	loss_and_gradient::Union{Function,Nothing} = nothing,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "FW"
 	println(name * " starts.")
@@ -169,8 +173,8 @@ function FW(
 
 	ρ = x_init
 
-	α0::Float64 = 0.99
-	r::Float64 = 0.5
+	α0::Float64 = 1 - 1e-12
+	r::Float64 = 0.8
 	τ::Float64 = 0.5
 
 	@inbounds for t in 1:n_epoch
@@ -183,16 +187,17 @@ function FW(
 			round = 0
 
 			g_dir = real(g ⋅ direction)
-			while τ * α * g_dir + fval < f(ρα) && round < 10
+			while τ * α * g_dir + fval < f(ρα) && round < 30
 				# while τ * real(g ⋅ (α*direction)) + fval < f(ρα) && round < 10
 				α *= r
 				ρα .= ρ + α * direction
 				round += 1
 			end
-			if round < 10
+			if round < 30
 				ρ = ρα
 			else
-				ρ = ρ
+				trim_output!(output, t-1)
+				break
 			end
 		end
 
@@ -219,9 +224,9 @@ end
 function BWRGD(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
-	loss_func,
-	gradient,
-	loss_and_gradient = nothing,
+	loss_func::Function,
+	gradient::Function,
+	loss_and_gradient::Union{Function,Nothing} = nothing,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "BW-RGD"
 	println(name * " starts.")
@@ -254,20 +259,21 @@ function BWRGD(
 			ρα = Hermitian(ρ - 2 * α * gρ_ρg + 4 * α^2 * gρg)
 			ρα /= tr(ρα)
 
+
 			round = 0
 			rie_grad_norm2 = 8 * real(tr(gρg))
-
-			while τ * α * -rie_grad_norm2 + fval < f(ρα) && round < 10
+			while τ * α * -rie_grad_norm2 + fval < f(ρα) && round < 30
 				# while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 10
 				α *= r
 				ρα .= Hermitian(ρ - 2 * α * gρ_ρg + 4 * α^2 * gρg)
 				ρα /= tr(ρα)
 				round += 1
 			end
-			if round < 10
+			if round < 30
 				ρ = ρα
 			else
-				ρ = ρ
+				trim_output!(output, t-1)
+				break
 			end
 		end
 

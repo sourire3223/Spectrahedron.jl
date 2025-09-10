@@ -5,9 +5,8 @@ using Statistics
 using Tullio
 
 
-
-function calc_fidelity(ρ::Hermitian{<:Complex}, σ::Hermitian{<:Complex})::Real
-	S = sqrt(σ)
+function calc_fidelity(ρ::Hermitian{T}, σ::Hermitian{T})::real(T) where {T<:Complex}
+	S::Hermitian{T} = sqrt(σ)
 	return real((tr(sqrt(S * ρ * S')))^2)
 end
 
@@ -99,35 +98,41 @@ function generate_data(
 	return data
 end
 
-function loss_func(state::Hermitian{<:Complex}, data::Array{<:Complex,3})::Real
-	ρ = state
-	prob = @tullio prob[k] := real(ρ ⋅ data[:, :, k])
+function loss_func(state::Hermitian{T}, data::Array{T,3}) where {T<:Complex}
+	d, _, n = size(data)
+	ρv = vec(state)                     # d^2 vector
+	datav = reshape(data, d^2, n)               # each column is vec(data[:,:,k])
+	prob = real(ρv' * datav)                    # 1 × n vector
 	return mean(-log.(prob))
-
 end
 
-function gradient(
-	state::Hermitian{<:Complex},
-	data::Array{<:Complex,3},
-)::Hermitian{<:Complex}
-	ρ = state
-	prob = @tullio prob[k] := real(ρ ⋅ data[:, :, k])
-	grad = @tullio grad[i, j] := -data[i, j, k] / prob[k]
-	return Hermitian(grad / size(data, 3))
+function gradient(state::Hermitian{T}, data::Array{T,3})::Hermitian{T} where {T<:Complex}
+	d, _, n = size(data)
+	ρv = vec(state)                     # d^2 vector
+	datav = reshape(data, d^2, n)       # d^2 × n matrix
+	prob = real.(ρv' * datav)           # 1 × n vector
 
+	weights = -1.0 ./ prob              # 1 × n vector of -1/prob[k]
+	grad = reshape(datav * weights', d, d) / n  # d^2 × n * n × 1 → d^2 → d × d
+
+	return Hermitian(grad)
 end
 
 
 
 function loss_and_gradient(
-	state::Hermitian{<:Complex},
-	data::Array{<:Complex,3},
-)::Tuple{Real,Hermitian{<:Complex}}
-	ρ = state
-	prob = @tullio prob[k] := real(ρ ⋅ data[:, :, k])
-	loss = mean(-log.(prob))
-	grad = @tullio grad[i, j] := -data[i, j, k] / prob[k]
-	return loss, Hermitian(grad / size(data, 3))
+	state::Hermitian{T},
+	data::Array{T,3},
+)::Tuple{real(T),Hermitian{T}} where {T<:Complex}
+	d, _, n = size(data)
+	ρv = vec(state)                     # d^2 vector
+	datav = reshape(data, d^2, n)               # each column is vec(data[:,:,k])
+	prob = real(ρv' * datav)
+
+	weights = -1.0 ./ prob              # 1 × n vector of -1/prob[k]
+	grad = reshape(datav * weights', d, d) / n  # d^2 × n * n × 1 → d^2 → d × d
+
+	return mean(-log.(prob)), Hermitian(grad)
 end
 
 # function log_barrier_projection(
@@ -164,4 +169,3 @@ end
 # 	A = ρ * σ
 # 	return real(tr(A * A))
 # end
-
