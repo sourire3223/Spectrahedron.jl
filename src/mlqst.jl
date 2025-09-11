@@ -98,24 +98,33 @@ function generate_data(
 	return data
 end
 
+function compute_prob(
+	state::Hermitian{T},
+	data::Array{T,3},
+)::Vector{real(T)} where {T<:Complex}
+	ρ = state
+	n = size(data)[3]
+	res = Vector{Float64}(undef, n)
+	@inbounds for k in 1:n
+		res[k] = real(tr(ρ ⋅ Hermitian(view(data,:,:,k))))
+	end
+	return res
+end
+
 function loss_func(state::Hermitian{T}, data::Array{T,3}) where {T<:Complex}
-	d, _, n = size(data)
-	ρv = vec(state)                     # d^2 vector
-	datav = reshape(data, d^2, n)               # each column is vec(data[:,:,k])
-	prob = real(ρv' * datav)                    # 1 × n vector
+	prob = @inline compute_prob(state, data)
 	return mean(-log.(prob))
 end
 
 function gradient(state::Hermitian{T}, data::Array{T,3})::Hermitian{T} where {T<:Complex}
-	d, _, n = size(data)
-	ρv = vec(state)                     # d^2 vector
-	datav = reshape(data, d^2, n)       # d^2 × n matrix
-	prob = real.(ρv' * datav)           # 1 × n vector
+	prob = @inline compute_prob(state, data)
 
-	weights = -1.0 ./ prob              # 1 × n vector of -1/prob[k]
-	grad = reshape(datav * weights', d, d) / n  # d^2 × n * n × 1 → d^2 → d × d
-
-	return Hermitian(grad)
+	d, ~, n = size(data)
+	datav = reshape(data, d^2, n)
+	weights = -1.0 ./ prob
+	grad = similar(state, d^2)
+	mul!(grad, datav, weights)
+	return Hermitian(reshape(grad, d, d) / n)
 end
 
 
@@ -124,15 +133,14 @@ function loss_and_gradient(
 	state::Hermitian{T},
 	data::Array{T,3},
 )::Tuple{real(T),Hermitian{T}} where {T<:Complex}
-	d, _, n = size(data)
-	ρv = vec(state)                     # d^2 vector
-	datav = reshape(data, d^2, n)               # each column is vec(data[:,:,k])
-	prob = real(ρv' * datav)
+	prob = @inline compute_prob(state, data)
 
-	weights = -1.0 ./ prob              # 1 × n vector of -1/prob[k]
-	grad = reshape(datav * weights', d, d) / n  # d^2 × n * n × 1 → d^2 → d × d
-
-	return mean(-log.(prob)), Hermitian(grad)
+	d, ~, n = size(data)
+	datav = reshape(data, d^2, n)
+	weights = -1.0 ./ prob
+	grad = similar(state, d^2)
+	mul!(grad, datav, weights)
+	return mean(-log.(prob)), Hermitian(reshape(grad, d, d) / n)
 end
 
 # function log_barrier_projection(
