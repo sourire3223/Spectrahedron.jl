@@ -6,8 +6,13 @@ using TimerOutputs
 using Tullio
 include("./utils.jl")
 
+struct ArmijoParams
+	α0::Float64
+	r::Float64
+	τ::Float64
+end
 
-function simplex_projection(y::Vector{<:Real}, tol::Real = 1e-12)::Vector{<:Real}
+function simplex_projection(y::Vector{T}, tol::Float64 = 1e-12)::Vector{T} where {T<:Real}
 	# compute argmin_{y∈Δ} ||x-y||_2 where Δ={y∈R^d: y≥0, ∑_i y_i=1}
 	# Wang and Carreira-Perpiñán. 2013. "Projection onto the probability simplex: An efficient algorithm with a simple proof, and an application".
 	d = length(y)
@@ -29,7 +34,8 @@ function PGD(
 	n_epoch::Integer,
 	loss_func::Function,
 	gradient::Function,
-	loss_and_gradient::Union{Function,Nothing} = nothing,
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	armijo_params::ArmijoParams,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "PGD"
 	println(name * " starts.")
@@ -40,17 +46,11 @@ function PGD(
 
 	f = loss_func
 	∇f = gradient
-	if loss_and_gradient !== nothing
-		f_and_∇f = loss_and_gradient # assume faster
-	else
-		f_and_∇f = (x) -> (f(x), ∇f(x))
-	end
+	f_and_∇f = loss_and_gradient # assume faster
 
 	ρ = x_init
 
-	α0::Float64 = 10
-	r::Float64 = 0.5
-	τ::Float64 = 0.5
+	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
 
 	@inbounds for t ∈ 1:n_epoch
 		@timeit to "iteration" begin
@@ -59,12 +59,12 @@ function PGD(
 			α = α0
 			ρα = ρ - α * g
 
-			ρα = euclidean_projection(ρα)
+			ρα = @inline euclidean_projection(ρα)
 			round = 0
 			while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 30
 				α *= r
 				ρα .= ρ - α * g
-				ρα = euclidean_projection(ρα)
+				ρα = @inline euclidean_projection(ρα)
 				round += 1
 			end
 			if round < 30
@@ -75,7 +75,7 @@ function PGD(
 			end
 		end
 
-		update_output!(output, t, t, fval, TimerOutputs.time(to["iteration"]) * 1e-9)
+		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
 		# print_output(io, output, t, VERBOSE)
 	end
 
@@ -86,7 +86,8 @@ function EMD(
 	n_epoch::Integer,
 	loss_func::Function,
 	gradient::Function,
-	loss_and_gradient::Union{Function,Nothing} = nothing,
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	armijo_params::ArmijoParams,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "EMD"
 	println(name * " starts.")
@@ -97,17 +98,11 @@ function EMD(
 
 	f = loss_func
 	∇f = gradient
-	if loss_and_gradient !== nothing
-		f_and_∇f = loss_and_gradient # assume faster
-	else
-		f_and_∇f = (x) -> (f(x), ∇f(x))
-	end
+	f_and_∇f = loss_and_gradient # assume faster
 
 	ρ = x_init
 
-	α0::Float64 = 10
-	r::Float64 = 0.5
-	τ::Float64 = 0.5
+	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
 
 	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
@@ -133,7 +128,7 @@ function EMD(
 			end
 		end
 
-		update_output!(output, t, t, fval, TimerOutputs.time(to["iteration"]) * 1e-9)
+		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
 		# print_output(io, output, t, VERBOSE)
 	end
 
@@ -153,7 +148,8 @@ function FW(
 	n_epoch::Integer,
 	loss_func::Function,
 	gradient::Function,
-	loss_and_gradient::Union{Function,Nothing} = nothing,
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	armijo_params::ArmijoParams,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "FW"
 	println(name * " starts.")
@@ -165,24 +161,18 @@ function FW(
 
 	f = loss_func
 	∇f = gradient
-	if loss_and_gradient !== nothing
-		f_and_∇f = loss_and_gradient # assume faster
-	else
-		f_and_∇f = (x) -> (f(x), ∇f(x))
-	end
+	f_and_∇f = loss_and_gradient # assume faster
 
 	ρ = x_init
 
-	α0::Float64 = 1 - 1e-12
-	r::Float64 = 0.8
-	τ::Float64 = 0.5
+	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
 
 	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
 			fval, g = f_and_∇f(ρ)
 			# Armijo line search
 			α = α0
-			direction = linear_oracle(g) - ρ
+			direction = @inline linear_oracle(g) - ρ
 			ρα = ρ + α * direction
 			round = 0
 
@@ -201,7 +191,7 @@ function FW(
 			end
 		end
 
-		update_output!(output, t, t, fval, TimerOutputs.time(to["iteration"]) * 1e-9)
+		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
 		# print_output(io, output, t, VERBOSE)
 	end
 
@@ -226,7 +216,8 @@ function BWRGD(
 	n_epoch::Integer,
 	loss_func::Function,
 	gradient::Function,
-	loss_and_gradient::Union{Function,Nothing} = nothing,
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	armijo_params::ArmijoParams,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "BW-RGD"
 	println(name * " starts.")
@@ -237,17 +228,12 @@ function BWRGD(
 
 	f = loss_func
 	∇f = gradient
-	if loss_and_gradient !== nothing
-		f_and_∇f = loss_and_gradient # assume faster
-	else
-		f_and_∇f = (x) -> (f(x), ∇f(x))
-	end
+	f_and_∇f = loss_and_gradient # assume faster
 
 	ρ = x_init
 
-	α0::Float64 = 1e2
-	r::Float64 = 0.5
-	τ::Float64 = 0.1
+	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
+
 
 	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
@@ -255,7 +241,7 @@ function BWRGD(
 
 			# Armijo line search
 			α = α0
-			gρ_ρg, gρg = bwrgd_helper(ρ, g)
+			gρ_ρg, gρg = @inline bwrgd_helper(ρ, g)
 			ρα = Hermitian(ρ - 2 * α * gρ_ρg + 4 * α^2 * gρg)
 			ρα /= tr(ρα)
 
@@ -277,7 +263,7 @@ function BWRGD(
 			end
 		end
 
-		update_output!(output, t, t, fval, TimerOutputs.time(to["iteration"]) * 1e-9)
+		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
 		# print_output(io, output, t, VERBOSE)
 	end
 
