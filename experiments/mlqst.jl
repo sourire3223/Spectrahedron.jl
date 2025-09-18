@@ -95,7 +95,7 @@ _, result_fw =
 @printf(io, "%d\n", n_epoch)
 write_output(io, result_fw)
 
-armijo_params = ArmijoParams(1e2, 0.5, 0.1)
+armijo_params = ArmijoParams(1e2, 0.5, 0.2)
 _, result_bwrgd =
 	bw_rgd(ρ_init, n_epoch, loss_func_, gradient_, loss_and_gradient_; armijo_params)
 @printf(io, "BW-RGD\n")

@@ -247,7 +247,7 @@ function bw_rgd(
 
 
 			round = 0
-			rie_grad_norm2 = 8 * real(tr(gρg))
+			rie_grad_norm2 = 4 * real(tr(gρg))
 			while τ * α * -rie_grad_norm2 + fval < f(ρα) && round < 30
 				# while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 10
 				α *= r
