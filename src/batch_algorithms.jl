@@ -269,3 +269,61 @@ function bw_rgd(
 
 	return ρ, output
 end
+
+function sphere_rgd(
+	halved_init::Matrix{T},
+	n_epoch::Integer,
+	loss_func::Function,
+	gradient::Function,
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	armijo_params::ArmijoParams,
+)::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
+	name = "Sphere-RGD"
+	println(name * " starts.")
+	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
+	output = init_output(n_epoch)
+	to = TimerOutput()
+	reset_timer!()
+
+	f = loss_func
+	∇f = gradient
+	f_and_∇f = loss_and_gradient # assume faster
+
+	Y = halved_init
+
+	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
+
+
+	@inbounds for t in 1:n_epoch
+		@timeit to "iteration" begin
+			fval, g = f_and_∇f(Y)
+
+			# Armijo line search
+			α = α0
+			Yα = Y - 2 * α * g
+			Yα /= norm(Yα)
+
+
+			round = 0
+			rie_grad_norm2 = 8 * real(tr(gρg))
+			while τ * α * -rie_grad_norm2 + fval < f(ρα) && round < 30
+				# while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 10
+				α *= r
+				ρα .= Hermitian(ρ - 2 * α * gρ_ρg + 4 * α^2 * gρg)
+				ρα /= tr(ρα)
+				round += 1
+			end
+			if round < 30
+				ρ = ρα
+			else
+				trim_output!(output, t-1)
+				break
+			end
+		end
+
+		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
+		# print_output(io, output, t, VERBOSE)
+	end
+
+	return ρ, output
+end

@@ -1,0 +1,86 @@
+using LinearAlgebra
+using Kronecker
+using Random
+using Statistics
+using Tullio
+
+include("./mlqst.jl")
+# throughout the code, ρ = halved * halved'
+
+function get_random_state_halved(
+	n_qubits::Integer,
+	rank::Integer = 2^n_qubits,
+)::Matrix{<:Complex}
+	d = 2^n_qubits
+	halved = randn(ComplexF64, d, rank)
+	halved /= norm(halved)
+	return halved
+end
+
+
+function get_w_state_halved(n_qubits::Integer)::Matrix{<:Complex}
+	w = zeros(ComplexF64, 2^n_qubits)
+	for i ∈ 1:n_qubits
+		w[2^(i-1)+1] = 1
+	end
+	w /= norm(w)
+	return w
+end
+
+
+function loss_func_bm(halved::Matrix{T}, data::Array{T,3}) where {T<:Complex}
+	ρ = Hermitian(halved * halved')
+	return loss_func(ρ, data)
+end
+
+function gradient_bm(halved::Matrix{T}, data::Array{T,3})::Matrix{T} where {T<:Complex}
+	ρ = Hermitian(halved * halved')
+	g = gradient(ρ, data)
+	return g * halved
+end
+
+
+
+function loss_and_gradient_bm(
+	halved::Matrix{T},
+	data::Array{T,3},
+)::Tuple{real(T),Hermitian{T}} where {T<:Complex}
+	ρ = Hermitian(halved * halved')
+	loss, grad = loss_and_gradient(ρ, data)
+	return loss, grad * halved
+end
+
+# function log_barrier_projection(
+# 	u::Array{Float64, 1},
+# 	ε::Float64,
+# )
+# 	# compute argmin_{x∈Δ} D_h(x,u) where h(x)=∑_{i=1}^d -log(x_i)
+# 	# minimize ϕ(θ) = θ - ∑_i log(θ + u_i^{-1})
+
+# 	θ::Float64 = 1 - minimum(1 ./ u)
+# 	a::Array{Float64, 1} = 1 ./ ((1 ./ u) .+ θ)
+# 	∇::Float64 = 1 - sum(a)
+# 	∇2::Float64 = a ⋅ a
+# 	λt::Float64 = abs(∇) / sn_qubitsrt(∇2)
+
+# 	while λt > ε
+# 		a = 1 ./ ((1 ./ u) .+ θ)
+# 		∇ = 1 - norm(a, 1)
+# 		∇2 = a ⋅ a
+# 		θ = θ - ∇ / ∇2
+# 		λt = abs(∇) / sn_qubitsrt(∇2)
+# 	end
+
+# 	return (1 ./ ((1 ./ u) .+ θ))
+# end
+
+
+# function α(ρ, v)
+# 	return -real(tr(ρ * v * ρ) / tr(ρ * ρ))
+# end
+
+
+# function dual_norm2(ρ, σ)
+# 	A = ρ * σ
+# 	return real(tr(A * A))
+# end

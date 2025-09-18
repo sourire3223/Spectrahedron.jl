@@ -61,6 +61,18 @@ function get_pauli_povms_positive(n_qubits::Integer)::Array{ComplexF64,3}
 	return POVM
 end
 
+function compute_prob(
+	state::Hermitian{T},
+	data::Array{T,3},
+)::Vector{real(T)} where {T<:Complex}
+	ρ = state
+	d, ~, n = size(data)
+
+	data_v = reshape(data, d*d, n)
+	ρ_v = vec(Matrix(ρ))
+	res = real.(ρ_v' * data_v)
+	return vec(res)
+end
 
 function compute_prob(
 	state::Hermitian{T},
