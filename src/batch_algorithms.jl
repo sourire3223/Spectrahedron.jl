@@ -29,7 +29,7 @@ function euclidean_projection(X::Hermitian{<:Number})::Hermitian{<:Number}
 	return Hermitian(eig.vectors * Diagonal(new_eigvals) * eig.vectors')
 end
 
-function PGD(
+function projected_gradient_descent(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
 	loss_func::Function,
@@ -81,7 +81,7 @@ function PGD(
 
 	return ρ, output
 end
-function EMD(
+function entropic_mirror_descent(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
 	loss_func::Function,
@@ -143,7 +143,7 @@ function linear_oracle(g::Hermitian{T})::Hermitian{T} where {T<:Number}
 end
 
 
-function FW(
+function frank_wolfe(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
 	loss_func::Function,
@@ -198,7 +198,7 @@ function FW(
 	return ρ, output
 end
 
-function bwrgd_helper(ρ::Hermitian{T}, g::Hermitian{T}) where {T<:Number}
+function bw_rgd_helper(ρ::Hermitian{T}, g::Hermitian{T}) where {T<:Number}
 	λ = g ⋅ ρ
 	gI = (g - λ * I)
 	gIρ = gI * ρ
@@ -211,7 +211,7 @@ function bwrgd_helper(ρ::Hermitian{T}, g::Hermitian{T}) where {T<:Number}
 
 end
 
-function BWRGD(
+function bw_rgd(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
 	loss_func::Function,
@@ -241,9 +241,67 @@ function BWRGD(
 
 			# Armijo line search
 			α = α0
-			gρ_ρg, gρg = @inline bwrgd_helper(ρ, g)
+			gρ_ρg, gρg = @inline bw_rgd_helper(ρ, g)
 			ρα = Hermitian(ρ - 2 * α * gρ_ρg + 4 * α^2 * gρg)
 			ρα /= tr(ρα)
+
+
+			round = 0
+			rie_grad_norm2 = 4 * real(tr(gρg))
+			while τ * α * -rie_grad_norm2 + fval < f(ρα) && round < 30
+				# while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 10
+				α *= r
+				ρα .= Hermitian(ρ - 2 * α * gρ_ρg + 4 * α^2 * gρg)
+				ρα /= tr(ρα)
+				round += 1
+			end
+			if round < 30
+				ρ = ρα
+			else
+				trim_output!(output, t-1)
+				break
+			end
+		end
+
+		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
+		# print_output(io, output, t, VERBOSE)
+	end
+
+	return ρ, output
+end
+
+function sphere_rgd(
+	halved_init::Matrix{T},
+	n_epoch::Integer,
+	loss_func::Function,
+	gradient::Function,
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	armijo_params::ArmijoParams,
+)::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
+	name = "Sphere-RGD"
+	println(name * " starts.")
+	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
+	output = init_output(n_epoch)
+	to = TimerOutput()
+	reset_timer!()
+
+	f = loss_func
+	∇f = gradient
+	f_and_∇f = loss_and_gradient # assume faster
+
+	Y = halved_init
+
+	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
+
+
+	@inbounds for t in 1:n_epoch
+		@timeit to "iteration" begin
+			fval, g = f_and_∇f(Y)
+
+			# Armijo line search
+			α = α0
+			Yα = Y - 2 * α * g
+			Yα /= norm(Yα)
 
 
 			round = 0
