@@ -62,6 +62,20 @@ function get_pauli_povms_positive(n_qubits::Integer)::Array{ComplexF64,3}
 end
 
 
+function compute_prob(
+	state::Hermitian{T},
+	data::Array{T,3},
+)::Vector{real(T)} where {T<:Complex}
+	ρ = state
+	d, ~, n = size(data)
+
+	data_v = reshape(data, d*d, n)
+	ρ_v = vec(Matrix(ρ))
+	res = real.(ρ_v' * data_v)
+	return vec(res)
+end
+
+
 function measure(
 	state::Hermitian{<:Complex},
 	povms_positive::Array{<:Complex,3},
@@ -71,14 +85,13 @@ function measure(
 	POVM = povms_positive
 	n = length(idx_obs)
 
-	prob = @tullio prob[k] := real(ρ ⋅ POVM[:, :, k])
+	prob = @inline compute_prob(ρ, POVM)
 	rand_vals = rand(n)
 	outcomes = [rand_vals[i] < prob[idx_obs[i]] for i in 1:n]
 
 	return outcomes
 
 end
-
 
 
 function generate_data(
@@ -98,23 +111,12 @@ function generate_data(
 	return data
 end
 
-function compute_prob(
-	state::Hermitian{T},
-	data::Array{T,3},
-)::Vector{real(T)} where {T<:Complex}
-	ρ = state
-	n = size(data)[3]
-	res = Vector{Float64}(undef, n)
-	@inbounds for k in 1:n
-		res[k] = real(tr(ρ ⋅ Hermitian(view(data,:,:,k))))
-	end
-	return res
-end
 
 function loss_func(state::Hermitian{T}, data::Array{T,3}) where {T<:Complex}
 	prob = @inline compute_prob(state, data)
 	return mean(-log.(prob))
 end
+
 
 function gradient(state::Hermitian{T}, data::Array{T,3})::Hermitian{T} where {T<:Complex}
 	prob = @inline compute_prob(state, data)
@@ -122,11 +124,10 @@ function gradient(state::Hermitian{T}, data::Array{T,3})::Hermitian{T} where {T<
 	d, ~, n = size(data)
 	datav = reshape(data, d^2, n)
 	weights = -1.0 ./ prob
-	grad = similar(state, d^2)
+	grad = similar(data, d^2)
 	mul!(grad, datav, weights)
 	return Hermitian(reshape(grad, d, d) / n)
 end
-
 
 
 function loss_and_gradient(
