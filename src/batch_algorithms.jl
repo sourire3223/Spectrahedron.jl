@@ -3,14 +3,11 @@ using KrylovKit
 using LinearAlgebra
 using Printf
 using TimerOutputs
-using Tullio
 include("./utils.jl")
+include("./math_utils.jl")
 
-struct ArmijoParams
-	α0::Float64
-	r::Float64
-	τ::Float64
-end
+
+const ArmijoParams = @NamedTuple{α0::Float64, r::Float64, τ::Float64}
 
 function simplex_projection(y::Vector{T}, tol::Float64 = 1e-12)::Vector{T} where {T<:Real}
 	# compute argmin_{y∈Δ} ||x-y||_2 where Δ={y∈R^d: y≥0, ∑_i y_i=1}
@@ -25,7 +22,7 @@ end
 
 function euclidean_projection(X::Hermitian{<:Number})::Hermitian{<:Number}
 	eig = eigen(X)
-	new_eigvals = simplex_projection(eig.values)
+	new_eigvals = @inline simplex_projection(eig.values)
 	return Hermitian(eig.vectors * Diagonal(new_eigvals) * eig.vectors')
 end
 
@@ -36,11 +33,12 @@ function projected_gradient_descent(
 	gradient::Function,
 	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
 	armijo_params::ArmijoParams,
+	output_functions::OutputFunctions = output_functions,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "PGD"
 	println(name * " starts.")
 	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
-	output = init_output(n_epoch)
+	output = output_functions.init(n_epoch + 1)
 	to = TimerOutput()
 	reset_timer!()
 
@@ -52,33 +50,50 @@ function projected_gradient_descent(
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
 
-	@inbounds for t ∈ 1:n_epoch
+	output_functions.update!(output, 1, 0.0, 0.0, f(ρ))
+	stop_early = false
+	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
 			fval, g = f_and_∇f(ρ)
 			# Armijo line search
 			α = α0
 			ρα = ρ - α * g
-
 			ρα = @inline euclidean_projection(ρα)
+			fval_α = f(ρα)
+
 			round = 0
-			while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 30
+			while τ * real(g ⋅ (ρα - ρ)) + fval < fval_α && (round += 1) <= 30
 				α *= r
 				ρα .= ρ - α * g
 				ρα = @inline euclidean_projection(ρα)
-				round += 1
+				fval_α = f(ρα)
 			end
-			if round < 30
+			if round <= 30 && fval_α < fval
 				ρ = ρα
 			else
-				trim_output!(output, t-1)
-				break
+				stop_early = true
 			end
 		end
 
-		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
-		# print_output(io, output, t, VERBOSE)
-	end
+		# update output after step
+		if !stop_early
+			time = TimerOutputs.time(to["iteration"]) * 1e-9
+			output_functions.update!(output, t + 1, float(t), time, fval_α)
+		else
+			output_functions.trim!(output, t)
+			@printf(
+				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
+				t - 1
+			)
+			break
+		end
 
+	end
+	time = TimerOutputs.time(to["iteration"]) * 1e-9
+	@printf("Elapsed time: %.6f seconds\n", time)
+	if !is_density_matrix(ρ)
+		@warn "The output is not a density matrix."
+	end
 	return ρ, output
 end
 function entropic_mirror_descent(
@@ -86,13 +101,15 @@ function entropic_mirror_descent(
 	n_epoch::Integer,
 	loss_func::Function,
 	gradient::Function,
-	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
+	;
 	armijo_params::ArmijoParams,
+	output_functions::OutputFunctions = output_functions,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "EMD"
 	println(name * " starts.")
 	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
-	output = init_output(n_epoch)
+	output = output_functions.init(n_epoch + 1)
 	to = TimerOutput()
 	reset_timer!()
 
@@ -103,6 +120,8 @@ function entropic_mirror_descent(
 	ρ = x_init
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
+	output_functions.update!(output, 1, 0.0, 0.0, f(ρ))
+	stop_early = false
 
 	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
@@ -112,26 +131,41 @@ function entropic_mirror_descent(
 			α = α0
 			ρα = exp(Hermitian(log(ρ)) - α * g) # prevent wrong return type, https://github.com/JuliaLang/LinearAlgebra.jl/blob/98723dff52d8a3003822cb43e28910fbde9c73f0/src/symmetric.jl#L950C1-L959C4
 			ρα /= tr(ρα)
+			fval_α = f(ρα)
 
 			round = 0
-			while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 30
+			while τ * real(g ⋅ (ρα - ρ)) + fval < fval_α && (round += 1) <= 30
 				α *= r
 				ρα .= exp(Hermitian(log(ρ)) - α * g) # prevent wrong return type, https://github.com/JuliaLang/LinearAlgebra.jl/blob/98723dff52d8a3003822cb43e28910fbde9c73f0/src/symmetric.jl#L950C1-L959C4
 				ρα /= tr(ρα)
-				round += 1
+				fval_α = f(ρα)
 			end
-			if round < 30
+			if round <= 30 && fval_α < fval
 				ρ = ρα
 			else
-				trim_output!(output, t-1)
-				break
+				stop_early = true
 			end
 		end
 
-		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
-		# print_output(io, output, t, VERBOSE)
-	end
+		# update output after step
+		if !stop_early
+			time = TimerOutputs.time(to["iteration"]) * 1e-9
+			output_functions.update!(output, t + 1, float(t), time, fval_α)
+		else
+			output_functions.trim!(output, t)
+			@printf(
+				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
+				t - 1
+			)
+			break
+		end
 
+	end
+	time = TimerOutputs.time(to["iteration"]) * 1e-9
+	@printf("Elapsed time: %.6f seconds\n", time)
+	if !is_density_matrix(ρ)
+		@warn "The output is not a density matrix."
+	end
 	return ρ, output
 end
 
@@ -148,13 +182,15 @@ function frank_wolfe(
 	n_epoch::Integer,
 	loss_func::Function,
 	gradient::Function,
-	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
+	;
 	armijo_params::ArmijoParams,
+	output_functions::OutputFunctions = output_functions,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "FW"
 	println(name * " starts.")
 	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
-	output = init_output(n_epoch)
+	output = output_functions.init(n_epoch + 1)
 	to = TimerOutput()
 	reset_timer!()
 
@@ -166,6 +202,8 @@ function frank_wolfe(
 	ρ = x_init
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
+	output_functions.update!(output, 1, 0.0, 0.0, f(ρ))
+	stop_early = false
 
 	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
@@ -174,25 +212,40 @@ function frank_wolfe(
 			α = α0
 			direction = @inline linear_oracle(g) - ρ
 			ρα = ρ + α * direction
-			round = 0
+			fval_α = f(ρα)
 
-			g_dir = real(g ⋅ direction)
-			while τ * α * g_dir + fval < f(ρα) && round < 30
-				# while τ * real(g ⋅ (α*direction)) + fval < f(ρα) && round < 10
+			round = 0
+			g_dir_inner = real(g ⋅ direction)
+			while τ * α * g_dir_inner + fval < fval_α && (round += 1) <= 30
 				α *= r
 				ρα .= ρ + α * direction
-				round += 1
+				fval_α = f(ρα)
 			end
-			if round < 30
+			if round <= 30 && fval_α < fval
 				ρ = ρα
 			else
-				trim_output!(output, t-1)
-				break
+				stop_early = true
 			end
 		end
 
-		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
-		# print_output(io, output, t, VERBOSE)
+		# update output after step
+		if !stop_early
+			time = TimerOutputs.time(to["iteration"]) * 1e-9
+			output_functions.update!(output, t + 1, float(t), time, fval_α)
+		else
+			output_functions.trim!(output, t)
+			@printf(
+				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
+				t - 1
+			)
+			break
+		end
+
+	end
+	time = TimerOutputs.time(to["iteration"]) * 1e-9
+	@printf("Elapsed time: %.6f seconds\n", time)
+	if !is_density_matrix(ρ)
+		@warn "The output is not a density matrix."
 	end
 
 	return ρ, output
@@ -216,13 +269,15 @@ function bw_rgd(
 	n_epoch::Integer,
 	loss_func::Function,
 	gradient::Function,
-	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
+	;
 	armijo_params::ArmijoParams,
+	output_functions::OutputFunctions = output_functions,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
 	name = "BW-RGD"
 	println(name * " starts.")
 	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
-	output = init_output(n_epoch)
+	output = output_functions.init(n_epoch + 1)
 	to = TimerOutput()
 	reset_timer!()
 
@@ -233,7 +288,8 @@ function bw_rgd(
 	ρ = x_init
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
-
+	output_functions.update!(output, 1, 0.0, 0.0, f(ρ))
+	stop_early = false
 
 	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
@@ -244,30 +300,50 @@ function bw_rgd(
 			gρ_ρg, gρg = @inline bw_rgd_helper(ρ, g)
 			ρα = Hermitian(ρ - 2 * α * gρ_ρg + 4 * α^2 * gρg)
 			ρα /= tr(ρα)
-
+			fval_α = f(ρα)
 
 			round = 0
 			rie_grad_norm2 = 4 * real(tr(gρg))
-			while τ * α * -rie_grad_norm2 + fval < f(ρα) && round < 30
-				# while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 10
+			while τ * α * -rie_grad_norm2 + fval < fval_α && (round += 1) <= 30
 				α *= r
 				ρα .= Hermitian(ρ - 2 * α * gρ_ρg + 4 * α^2 * gρg)
 				ρα /= tr(ρα)
-				round += 1
+				fval_α = f(ρα)
 			end
-			if round < 30
+			if round <= 30 && fval_α < fval
 				ρ = ρα
 			else
-				trim_output!(output, t-1)
-				break
+				stop_early = true
 			end
 		end
 
-		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
-		# print_output(io, output, t, VERBOSE)
+		# update output after step
+		if !stop_early
+			time = TimerOutputs.time(to["iteration"]) * 1e-9
+			output_functions.update!(output, t + 1, float(t), time, fval_α)
+		else
+			output_functions.trim!(output, t)
+			@printf(
+				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
+				t - 1
+			)
+			break
+		end
+
+	end
+	time = TimerOutputs.time(to["iteration"]) * 1e-9
+	@printf("Elapsed time: %.6f seconds\n", time)
+	if !is_density_matrix(ρ)
+		@warn "The output is not a density matrix."
 	end
 
 	return ρ, output
+end
+
+
+function rie_grad_sphere(halved::Matrix{T}, g::Matrix{T}) where {T<:Number}
+	# Riemannian gradient on the sphere manifold
+	return g - real(halved ⋅ g) * halved
 end
 
 function sphere_rgd(
@@ -275,13 +351,15 @@ function sphere_rgd(
 	n_epoch::Integer,
 	loss_func::Function,
 	gradient::Function,
-	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
+	;
 	armijo_params::ArmijoParams,
-)::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
+	output_functions::OutputFunctions = output_functions,
+)::Tuple{Matrix{T},Dict{String,Any}} where {T<:Number}
 	name = "Sphere-RGD"
 	println(name * " starts.")
 	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
-	output = init_output(n_epoch)
+	output = output_functions.init(n_epoch + 1)
 	to = TimerOutput()
 	reset_timer!()
 
@@ -292,7 +370,8 @@ function sphere_rgd(
 	Y = halved_init
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
-
+	output_functions.update!(output, 1, 0.0, 0.0, f(Y))
+	stop_early = false
 
 	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
@@ -300,30 +379,42 @@ function sphere_rgd(
 
 			# Armijo line search
 			α = α0
-			Yα = Y - 2 * α * g
+			rie_grad = @inline rie_grad_sphere(Y, g)
+			Yα = Y - α * rie_grad
 			Yα /= norm(Yα)
-
+			fval_α = f(Yα)
 
 			round = 0
-			rie_grad_norm2 = 8 * real(tr(gρg))
-			while τ * α * -rie_grad_norm2 + fval < f(ρα) && round < 30
-				# while τ * real(g ⋅ (ρα - ρ)) + fval < f(ρα) && round < 10
+			rie_grad_norm2 = norm(rie_grad)^2
+			while τ * α * -rie_grad_norm2 + fval < fval_α && (round += 1) <= 30
 				α *= r
-				ρα .= Hermitian(ρ - 2 * α * gρ_ρg + 4 * α^2 * gρg)
-				ρα /= tr(ρα)
-				round += 1
+				Yα .= Y - α * rie_grad
+				Yα /= norm(Yα)
+				fval_α = f(Yα)
 			end
-			if round < 30
-				ρ = ρα
+			if round <= 30 && fval_α < fval
+				Y = Yα
 			else
-				trim_output!(output, t-1)
-				break
+				stop_early = true
 			end
 		end
 
-		update_output!(output, t, float(t), fval, TimerOutputs.time(to["iteration"]) * 1e-9)
-		# print_output(io, output, t, VERBOSE)
-	end
+		# update output after step
+		if !stop_early
+			time = TimerOutputs.time(to["iteration"]) * 1e-9
+			output_functions.update!(output, t + 1, float(t), time, fval_α)
+		else
+			output_functions.trim!(output, t)
+			@printf(
+				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
+				t - 1
+			)
+			break
+		end
 
-	return ρ, output
+	end
+	time = TimerOutputs.time(to["iteration"]) * 1e-9
+	@printf("Elapsed time: %.6f seconds\n", time)
+
+	return Y, output
 end
