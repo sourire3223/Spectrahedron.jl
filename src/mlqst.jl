@@ -2,7 +2,6 @@ using LinearAlgebra
 using Kronecker
 using Random
 using Statistics
-using Tullio
 
 
 function calc_fidelity(ρ::Hermitian{T}, σ::Hermitian{T})::real(T) where {T<:Complex}
@@ -11,7 +10,7 @@ function calc_fidelity(ρ::Hermitian{T}, σ::Hermitian{T})::real(T) where {T<:Co
 end
 
 
-function get_random_state(n_qubits::Integer)::Hermitian{<:Complex}
+function get_random_state(n_qubits::Integer)::Hermitian{ComplexF64}
 	d = 2^n_qubits
 	halved = randn(ComplexF64, d, d)
 	ρ = halved * halved'
@@ -20,7 +19,7 @@ function get_random_state(n_qubits::Integer)::Hermitian{<:Complex}
 end
 
 
-function get_w_state(n_qubits::Integer)::Hermitian{<:Complex}
+function get_w_state(n_qubits::Integer)::Hermitian{ComplexF64}
 	w = zeros(ComplexF64, 2^n_qubits)
 	for i ∈ 1:n_qubits
 		w[2^(i-1)+1] = 1
@@ -74,25 +73,12 @@ function compute_prob(
 	return vec(res)
 end
 
-function compute_prob(
-	state::Hermitian{T},
-	data::Array{T,3},
-)::Vector{real(T)} where {T<:Complex}
-	ρ = state
-	d, ~, n = size(data)
-
-	data_v = reshape(data, d*d, n)
-	ρ_v = vec(Matrix(ρ))
-	res = real.(ρ_v' * data_v)
-	return vec(res)
-end
-
 
 function measure(
-	state::Hermitian{<:Complex},
-	povms_positive::Array{<:Complex,3},
+	state::Hermitian{T},
+	povms_positive::Array{T,3},
 	idx_obs::Vector{<:Integer},
-)::Vector{Bool}
+)::Vector{Bool} where {T<:Complex}
 	ρ = state
 	POVM = povms_positive
 	n = length(idx_obs)
@@ -102,20 +88,19 @@ function measure(
 	outcomes = [rand_vals[i] < prob[idx_obs[i]] for i in 1:n]
 
 	return outcomes
-
 end
 
 
 function generate_data(
-	povms_positive::Array{ComplexF64,3},
+	povms_positive::Array{T,3},
 	idx_obs::Vector{Int},
 	outcomes::Vector{Bool},
-)::Array{ComplexF64,3}
+)::Array{T,3} where {T<:Complex}
 	d = size(povms_positive, 1)
 	n = length(idx_obs)
 
-	data = Array{ComplexF64,3}(undef, d, d, n)
-	I_d = Matrix{ComplexF64}(I, d, d)
+	data = Array{T,3}(undef, d, d, n)
+	I_d = Matrix{T}(I, d, d)
 	@inbounds for i in 1:n
 		obs = view(povms_positive,:,:,idx_obs[i])
 		data[:, :, i] .= outcomes[i] ? obs : I_d .- obs
@@ -124,11 +109,41 @@ function generate_data(
 end
 
 
-function loss_func(state::Hermitian{T}, data::Array{T,3}) where {T<:Complex}
+function generate_data_freq(
+	povms_positive::Array{T,3},
+	idx_obs::Vector{Int},
+	outcomes::Vector{Bool},
+)::Tuple{Vector{real(T)},Array{T,3}} where {T<:Complex}
+	d, ~, n_povms = size(povms_positive)
+	n = length(idx_obs)
+
+	I_d = Matrix{real(T)}(I, d, d)
+	POVMs = cat(povms_positive, I_d .- povms_positive[:, :, 1:(end-1)], dims = 3)
+
+
+	frequency = zeros(real(T), size(POVMs, 3))
+	indices = idx_obs .+ (n_povms * (.!outcomes))
+	@inbounds for idx in indices
+		frequency[idx] += 1
+	end
+	return frequency / n, POVMs
+end
+
+
+
+function loss_func(state::Hermitian{T}, data::Array{T,3})::real(T) where {T<:Complex}
 	prob = @inline compute_prob(state, data)
 	return mean(-log.(prob))
 end
 
+function loss_func(
+	state::Hermitian{Complex{T}},
+	frequency::Vector{T},
+	data::Array{Complex{T},3},
+)::T where {T<:AbstractFloat}
+	prob = @inline compute_prob(state, data)
+	return sum(-frequency .* log.(prob))
+end
 
 function gradient(state::Hermitian{T}, data::Array{T,3})::Hermitian{T} where {T<:Complex}
 	prob = @inline compute_prob(state, data)
@@ -139,6 +154,21 @@ function gradient(state::Hermitian{T}, data::Array{T,3})::Hermitian{T} where {T<
 	grad = similar(data, d^2)
 	mul!(grad, datav, weights)
 	return Hermitian(reshape(grad, d, d) / n)
+end
+
+function gradient(
+	state::Hermitian{Complex{T}},
+	frequency::Vector{T},
+	data::Array{Complex{T},3},
+)::Hermitian{Complex{T}} where {T<:AbstractFloat}
+	prob = @inline compute_prob(state, data)
+
+	d, ~, n = size(data)
+	datav = reshape(data, d^2, n)
+	weights = -frequency ./ prob
+	grad = similar(data, d^2)
+	mul!(grad, datav, weights)
+	return Hermitian(reshape(grad, d, d))
 end
 
 
@@ -155,6 +185,22 @@ function loss_and_gradient(
 	mul!(grad, datav, weights)
 	return mean(-log.(prob)), Hermitian(reshape(grad, d, d) / n)
 end
+
+function loss_and_gradient(
+	state::Hermitian{Complex{T}},
+	frequency::Vector{T},
+	data::Array{Complex{T},3},
+)::Tuple{T,Hermitian{Complex{T}}} where {T<:AbstractFloat}
+	prob = @inline compute_prob(state, data)
+
+	d, ~, n = size(data)
+	datav = reshape(data, d^2, n)
+	weights = -frequency ./ prob
+	grad = similar(state, d^2)
+	mul!(grad, datav, weights)
+	return sum(-frequency .* log.(prob)), Hermitian(reshape(grad, d, d))
+end
+
 
 # function log_barrier_projection(
 # 	u::Array{Float64, 1},
