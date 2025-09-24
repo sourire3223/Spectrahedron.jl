@@ -3,9 +3,10 @@ using Dates
 using Random
 using Printf
 
-include("../src/batch_algorithms.jl")
+include("../src/batch-linesearch.jl")
 include("../src/mlqst.jl")
-include("../src/mlqst_bm.jl")
+include("../src/mlqst-bm.jl")
+include("../src/utils.jl")
 
 
 ## Configurations
