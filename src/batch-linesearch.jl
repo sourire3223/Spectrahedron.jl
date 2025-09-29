@@ -59,14 +59,85 @@ function projected_gradient_descent(
 			# Armijo line search
 			α = α0
 			ρα = ρ - α * g
-			ρα = @inline euclidean_projection(ρα)
+			ρα .= @inline euclidean_projection(ρα)
 			fval_α = f(ρα)
 
 			round = 0
 			while τ * real(g ⋅ (ρα - ρ)) + fval < fval_α && (round += 1) <= 30
 				α *= r
 				ρα .= ρ - α * g
-				ρα = @inline euclidean_projection(ρα)
+				ρα .= @inline euclidean_projection(ρα)
+				fval_α = f(ρα)
+			end
+			if round <= 30 && fval_α < fval
+				ρ = ρα
+			else
+				stop_early = true
+			end
+		end
+
+		# update output after step
+		if !stop_early
+			time = TimerOutputs.time(to["iteration"]) * 1e-9
+			@inline output_functions.push!(output, float(t), time, fval_α, ρ)
+		else
+			@printf(
+				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
+				t - 1
+			)
+			break
+		end
+
+	end
+	time = TimerOutputs.time(to["iteration"]) * 1e-9
+	@printf("Elapsed time: %.6f seconds\n", time)
+	if !is_density_matrix(ρ)
+		@warn "The output is not a density matrix."
+	end
+	return ρ, output
+end
+
+function feasible_direction_pgd(
+	x_init::Hermitian{T},
+	n_epoch::Integer,
+	;
+	loss_func::Function,
+	gradient::Function,
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
+	armijo_params::ArmijoParams,
+	output_functions::OutputFunctions = output_functions,
+)::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
+	name = "feasible direction PGD"
+	println(name * " starts.")
+	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
+	output = @inline output_functions.init()
+	to = TimerOutput()
+	reset_timer!()
+
+	f = loss_func
+	∇f = gradient
+	f_and_∇f = loss_and_gradient # assume faster
+
+	ρ = x_init
+
+	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
+
+	@inline output_functions.push!(output, 0.0, 0.0, f(ρ))
+	stop_early = false
+	@inbounds for t in 1:n_epoch
+		@timeit to "iteration" begin
+			fval, g = f_and_∇f(ρ)
+			# Armijo line search
+			α = α0
+			ρα = ρ - α * g
+			ρα .= @inline euclidean_projection(ρα)
+			d = ρα - ρ
+			fval_α = f(ρα)
+
+			round = 0
+			while τ * real(g ⋅ d) + fval < fval_α && (round += 1) <= 30
+				d *= r
+				ρα .= ρ + d
 				fval_α = f(ρα)
 			end
 			if round <= 30 && fval_α < fval
