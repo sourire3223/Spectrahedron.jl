@@ -22,7 +22,10 @@ function get_w_state_halved(n_qubits::Integer)::Matrix{<:Complex}
 end
 
 
-function loss_func_bm(halved::Matrix{T}, data::Array{T,3})::real(T) where {T<:Complex}
+function loss_func_bm(
+	halved::Matrix{T},
+	data::AbstractArray{T,3},
+)::real(T) where {T<:Complex}
 	ρ = Hermitian(halved * halved')
 	return @inline loss_func(ρ, data)
 end
@@ -30,14 +33,17 @@ end
 function loss_func_bm(
 	halved::Matrix{Complex{T}},
 	frequency::Vector{T},
-	data::Array{Complex{T},3},
+	data::AbstractArray{Complex{T},3},
 )::T where {T<:AbstractFloat}
 	ρ = Hermitian(halved * halved')
 	return @inline loss_func(ρ, frequency, data)
 end
 
 
-function gradient_bm(halved::Matrix{T}, data::Array{T,3})::Matrix{T} where {T<:Complex}
+function gradient_bm(
+	halved::Matrix{T},
+	data::AbstractArray{T,3},
+)::Matrix{T} where {T<:Complex}
 	ρ = Hermitian(halved * halved')
 	g = @inline gradient(ρ, data)
 	return g * halved
@@ -46,7 +52,7 @@ end
 function gradient_bm(
 	halved::Matrix{Complex{T}},
 	frequency::Vector{T},
-	data::Array{Complex{T},3},
+	data::AbstractArray{Complex{T},3},
 )::Hermitian{Complex{T}} where {T<:AbstractFloat}
 	ρ = Hermitian(halved * halved')
 	g = @inline gradient(ρ, frequency, data)
@@ -55,7 +61,7 @@ end
 
 function loss_and_gradient_bm(
 	halved::Matrix{T},
-	data::Array{T,3},
+	data::AbstractArray{T,3},
 )::Tuple{real(T),Matrix{T}} where {T<:Complex}
 	ρ = Hermitian(halved * halved')
 	loss, grad = @inline loss_and_gradient(ρ, data)
@@ -66,11 +72,32 @@ end
 function loss_and_gradient_bm(
 	halved::Matrix{Complex{T}},
 	frequency::Vector{T},
-	data::Array{Complex{T},3},
+	data::AbstractArray{Complex{T},3},
 )::Tuple{T,Matrix{Complex{T}}} where {T<:AbstractFloat}
 	ρ = Hermitian(halved * halved')
 	loss, grad = @inline loss_and_gradient(ρ, frequency, data)
 	return loss, grad * halved
+end
+
+function hessian_bm(
+	halved::Matrix{T},
+	v::Matrix{T},
+	data::AbstractArray{T,3},
+)::Matrix{T} where {T<:Complex}
+	ρ = Hermitian(halved * halved')
+	return @inline hessian(ρ, Hermitian(v * halved' + halved * v'), data) * halved +
+				   @inline gradient(ρ, data) * v
+end
+
+function hessian_bm(
+	halved::Matrix{Complex{T}},
+	v::Matrix{Complex{T}},
+	frequency::Vector{T},
+	data::AbstractArray{Complex{T},3},
+)::Matrix{Complex{T}} where {T<:AbstractFloat}
+	ρ = Hermitian(halved * halved')
+	return @inline hessian(ρ, Hermitian(v * halved' + halved * v'), frequency, data) *
+				   halved + @inline gradient(ρ, frequency, data) * v
 end
 
 

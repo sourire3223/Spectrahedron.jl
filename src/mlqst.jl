@@ -62,7 +62,7 @@ end
 
 function compute_prob(
 	state::Hermitian{T},
-	data::Array{T,3},
+	data::AbstractArray{T,3},
 )::Vector{real(T)} where {T<:Complex}
 	ρ = state
 	d, ~, n = size(data)
@@ -131,21 +131,32 @@ end
 
 
 
-function loss_func(state::Hermitian{T}, data::Array{T,3})::real(T) where {T<:Complex}
+function loss_func(
+	state::Hermitian{T},
+	data::AbstractArray{T,3},
+)::real(T) where {T<:Complex}
 	prob = @inline compute_prob(state, data)
 	return mean(-log.(prob))
 end
-
+function loss_func(
+	state::Hermitian{T},
+	data::AbstractArray{T,2},
+)::real(T) where {T<:Complex}
+	return -log(real(state ⋅ data))
+end
 function loss_func(
 	state::Hermitian{Complex{T}},
 	frequency::Vector{T},
-	data::Array{Complex{T},3},
+	data::AbstractArray{Complex{T},3},
 )::T where {T<:AbstractFloat}
 	prob = @inline compute_prob(state, data)
 	return sum(-frequency .* log.(prob))
 end
 
-function gradient(state::Hermitian{T}, data::Array{T,3})::Hermitian{T} where {T<:Complex}
+function gradient(
+	state::Hermitian{T},
+	data::AbstractArray{T,3},
+)::Hermitian{T} where {T<:Complex}
 	prob = @inline compute_prob(state, data)
 
 	d, ~, n = size(data)
@@ -159,7 +170,7 @@ end
 function gradient(
 	state::Hermitian{Complex{T}},
 	frequency::Vector{T},
-	data::Array{Complex{T},3},
+	data::AbstractArray{Complex{T},3},
 )::Hermitian{Complex{T}} where {T<:AbstractFloat}
 	prob = @inline compute_prob(state, data)
 
@@ -174,7 +185,7 @@ end
 
 function loss_and_gradient(
 	state::Hermitian{T},
-	data::Array{T,3},
+	data::AbstractArray{T,3},
 )::Tuple{real(T),Hermitian{T}} where {T<:Complex}
 	prob = @inline compute_prob(state, data)
 
@@ -189,7 +200,7 @@ end
 function loss_and_gradient(
 	state::Hermitian{Complex{T}},
 	frequency::Vector{T},
-	data::Array{Complex{T},3},
+	data::AbstractArray{Complex{T},3},
 )::Tuple{T,Hermitian{Complex{T}}} where {T<:AbstractFloat}
 	prob = @inline compute_prob(state, data)
 
@@ -200,6 +211,67 @@ function loss_and_gradient(
 	mul!(grad, datav, weights)
 	return sum(-frequency .* log.(prob)), Hermitian(reshape(grad, d, d))
 end
+
+
+function hessian(
+	state::Hermitian{T},
+	v::Hermitian{T},
+	data::AbstractArray{T,3},
+)::Hermitian{T} where {T<:Complex}
+	prob = @inline compute_prob(state, data)
+	numerator = @inline compute_prob(v, data)
+
+	d, ~, n = size(data)
+	datav = reshape(data, d^2, n)
+	weights = (frequency .* numerator ./ (prob .^ 2))
+	hess_v = similar(state, d^2)
+	mul!(hess_v, datav, weights)
+	return Hermitian(reshape(hess_v, d, d) / n)
+end
+
+# function hessian_vv(
+# 	state::Hermitian{T},
+# 	v::Hermitian{T},
+# 	data::AbstractArray{T,3},
+# )::real(T) where {T<:Complex}
+# 	prob = @inline compute_prob(state, data)
+# 	numerator = @inline compute_prob(v, data)
+
+# 	d, ~, n = size(data)
+# 	weights = (numerator^2 ./ (prob .^ 2))
+# 	return mean(weights)
+# end
+
+function hessian(
+	state::Hermitian{Complex{T}},
+	v::Hermitian{Complex{T}},
+	frequency::Vector{T},
+	data::AbstractArray{Complex{T},3},
+)::Hermitian{Complex{T}} where {T<:AbstractFloat}
+	prob = @inline compute_prob(state, data)
+	numerator = @inline compute_prob(v, data)
+
+	d, ~, n = size(data)
+	datav = reshape(data, d^2, n)
+	weights = (frequency .* numerator ./ (prob .^ 2))
+	hess_v = similar(state, d^2)
+	mul!(hess_v, datav, weights)
+	return Hermitian(reshape(hess_v, d, d))
+end
+
+# function hessian_vv(
+# 	state::Hermitian{Complex{T}},
+# 	v::Hermitian{Complex{T}},
+# 	frequency::Vector{T},
+# 	data::AbstractArray{Complex{T},3},
+# )::T where {T<:AbstractFloat}
+# 	prob = @inline compute_prob(state, data)
+# 	numerator = @inline compute_prob(v, data)
+
+# 	d, ~, n = size(data)
+# 	weights = (frequency .* numerator^2 ./ (prob .^ 2))
+# 	return sum(weights)
+# end
 
 
 # function log_barrier_projection(

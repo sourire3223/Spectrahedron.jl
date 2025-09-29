@@ -38,7 +38,7 @@ function projected_gradient_descent(
 	name = "PGD"
 	println(name * " starts.")
 	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
-	output = output_functions.init(n_epoch + 1)
+	output = @inline output_functions.init()
 	to = TimerOutput()
 	reset_timer!()
 
@@ -50,7 +50,7 @@ function projected_gradient_descent(
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
 
-	output_functions.update!(output, 1, 0.0, 0.0, f(ρ))
+	@inline output_functions.push!(output, 0.0, 0.0, f(ρ))
 	stop_early = false
 	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
@@ -78,9 +78,8 @@ function projected_gradient_descent(
 		# update output after step
 		if !stop_early
 			time = TimerOutputs.time(to["iteration"]) * 1e-9
-			output_functions.update!(output, t + 1, float(t), time, fval_α)
+			@inline output_functions.push!(output, float(t), time, fval_α, ρ)
 		else
-			output_functions.trim!(output, t)
 			@printf(
 				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
 				t - 1
@@ -96,6 +95,28 @@ function projected_gradient_descent(
 	end
 	return ρ, output
 end
+
+
+function emd_step(
+	ρ::Hermitian{T},
+	g::Hermitian{T},
+	α::Float64,
+	;
+	atol::Float64 = 1e-12,
+)::Hermitian{T} where {T<:Number}
+	eig = eigen(Hermitian(ρ))
+	mask = eig.values .> atol
+	Λ = Diagonal(eig.values[mask])
+	logΛ = log(Λ)
+	U = eig.vectors[:, mask]
+
+	g = Hermitian(U' * g * U)
+	g .= Hermitian(logΛ - α * g)
+	g -= opnorm(g) * I # for numerical stability softmax(x) = softmax(x - max(x))
+	ρ_new = Hermitian(U * exp(g) * U')
+	ρ_new /= tr(ρ_new)
+	return ρ_new
+end
 function entropic_mirror_descent(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
@@ -109,7 +130,7 @@ function entropic_mirror_descent(
 	name = "EMD"
 	println(name * " starts.")
 	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
-	output = output_functions.init(n_epoch + 1)
+	output = @inline output_functions.init()
 	to = TimerOutput()
 	reset_timer!()
 
@@ -120,7 +141,7 @@ function entropic_mirror_descent(
 	ρ = x_init
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
-	output_functions.update!(output, 1, 0.0, 0.0, f(ρ))
+	@inline output_functions.push!(output, 0.0, 0.0, f(ρ), ρ)
 	stop_early = false
 
 	@inbounds for t in 1:n_epoch
@@ -129,15 +150,13 @@ function entropic_mirror_descent(
 
 			# Armijo line search
 			α = α0
-			ρα = exp(Hermitian(log(ρ)) - α * g) # prevent wrong return type, https://github.com/JuliaLang/LinearAlgebra.jl/blob/98723dff52d8a3003822cb43e28910fbde9c73f0/src/symmetric.jl#L950C1-L959C4
-			ρα /= tr(ρα)
+			ρα = @inline emd_step(ρ, g, α)
 			fval_α = f(ρα)
 
 			round = 0
 			while τ * real(g ⋅ (ρα - ρ)) + fval < fval_α && (round += 1) <= 30
 				α *= r
-				ρα .= exp(Hermitian(log(ρ)) - α * g) # prevent wrong return type, https://github.com/JuliaLang/LinearAlgebra.jl/blob/98723dff52d8a3003822cb43e28910fbde9c73f0/src/symmetric.jl#L950C1-L959C4
-				ρα /= tr(ρα)
+				ρα .= @inline emd_step(ρ, g, α)
 				fval_α = f(ρα)
 			end
 			if round <= 30 && fval_α < fval
@@ -150,9 +169,8 @@ function entropic_mirror_descent(
 		# update output after step
 		if !stop_early
 			time = TimerOutputs.time(to["iteration"]) * 1e-9
-			output_functions.update!(output, t + 1, float(t), time, fval_α)
+			@inline output_functions.push!(output, float(t), time, fval_α, ρ)
 		else
-			output_functions.trim!(output, t)
 			@printf(
 				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
 				t - 1
@@ -190,7 +208,7 @@ function frank_wolfe(
 	name = "FW"
 	println(name * " starts.")
 	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
-	output = output_functions.init(n_epoch + 1)
+	output = @inline output_functions.init()
 	to = TimerOutput()
 	reset_timer!()
 
@@ -202,7 +220,7 @@ function frank_wolfe(
 	ρ = x_init
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
-	output_functions.update!(output, 1, 0.0, 0.0, f(ρ))
+	@inline output_functions.push!(output, 0.0, 0.0, f(ρ), ρ)
 	stop_early = false
 
 	@inbounds for t in 1:n_epoch
@@ -231,9 +249,8 @@ function frank_wolfe(
 		# update output after step
 		if !stop_early
 			time = TimerOutputs.time(to["iteration"]) * 1e-9
-			output_functions.update!(output, t + 1, float(t), time, fval_α)
+			@inline output_functions.push!(output, float(t), time, fval_α, ρ)
 		else
-			output_functions.trim!(output, t)
 			@printf(
 				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
 				t - 1
@@ -277,7 +294,7 @@ function bw_rgd(
 	name = "BW-RGD"
 	println(name * " starts.")
 	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
-	output = output_functions.init(n_epoch + 1)
+	output = @inline output_functions.init()
 	to = TimerOutput()
 	reset_timer!()
 
@@ -288,7 +305,7 @@ function bw_rgd(
 	ρ = x_init
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
-	output_functions.update!(output, 1, 0.0, 0.0, f(ρ))
+	@inline output_functions.push!(output, 0.0, 0.0, f(ρ), ρ)
 	stop_early = false
 
 	@inbounds for t in 1:n_epoch
@@ -303,8 +320,8 @@ function bw_rgd(
 			fval_α = f(ρα)
 
 			round = 0
-			rie_grad_norm2 = 4 * real(tr(gρg))
-			while τ * α * -rie_grad_norm2 + fval < fval_α && (round += 1) <= 30
+			rgrad_norm² = 4 * real(tr(gρg))
+			while τ * α * -rgrad_norm² + fval < fval_α && (round += 1) <= 30
 				α *= r
 				ρα .= Hermitian(ρ - 2 * α * gρ_ρg + 4 * α^2 * gρg)
 				ρα /= tr(ρα)
@@ -320,9 +337,8 @@ function bw_rgd(
 		# update output after step
 		if !stop_early
 			time = TimerOutputs.time(to["iteration"]) * 1e-9
-			output_functions.update!(output, t + 1, float(t), time, fval_α)
+			@inline output_functions.push!(output, float(t), time, fval_α, ρ)
 		else
-			output_functions.trim!(output, t)
 			@printf(
 				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
 				t - 1
@@ -341,13 +357,14 @@ function bw_rgd(
 end
 
 
-function rie_grad_sphere(halved::Matrix{T}, g::Matrix{T}) where {T<:Number}
-	# Riemannian gradient on the sphere manifold
-	return g - real(halved ⋅ g) * halved
+function sphere_tangent(x::Matrix{T}, v::Matrix{T}) where {T<:Number}
+	# project v onto the tangent space at x on the unit sphere
+	return v - real(x ⋅ v) * x
 end
 
+
 function sphere_rgd(
-	halved_init::Matrix{T},
+	x_init::Matrix{T},
 	n_epoch::Integer,
 	loss_func::Function,
 	gradient::Function,
@@ -359,7 +376,7 @@ function sphere_rgd(
 	name = "Sphere-RGD"
 	println(name * " starts.")
 	# @printf(io, "%s\n%d\n%d\n", name, n_epoch, n_rate)
-	output = output_functions.init(n_epoch + 1)
+	output = @inline output_functions.init()
 	to = TimerOutput()
 	reset_timer!()
 
@@ -367,10 +384,10 @@ function sphere_rgd(
 	∇f = gradient
 	f_and_∇f = loss_and_gradient # assume faster
 
-	Y = halved_init
+	Y = x_init
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
-	output_functions.update!(output, 1, 0.0, 0.0, f(Y))
+	@inline output_functions.push!(output, 0.0, 0.0, f(Y), Y)
 	stop_early = false
 
 	@inbounds for t in 1:n_epoch
@@ -379,14 +396,14 @@ function sphere_rgd(
 
 			# Armijo line search
 			α = α0
-			rie_grad = @inline rie_grad_sphere(Y, g)
+			rie_grad = @inline sphere_tangent(Y, g)
 			Yα = Y - α * rie_grad
 			Yα /= norm(Yα)
 			fval_α = f(Yα)
 
 			round = 0
-			rie_grad_norm2 = norm(rie_grad)^2
-			while τ * α * -rie_grad_norm2 + fval < fval_α && (round += 1) <= 30
+			rgrad_norm² = norm(rie_grad)^2
+			while τ * α * -rgrad_norm² + fval < fval_α && (round += 1) <= 30
 				α *= r
 				Yα .= Y - α * rie_grad
 				Yα /= norm(Yα)
@@ -402,9 +419,8 @@ function sphere_rgd(
 		# update output after step
 		if !stop_early
 			time = TimerOutputs.time(to["iteration"]) * 1e-9
-			output_functions.update!(output, t + 1, float(t), time, fval_α)
+			@inline output_functions.push!(output, float(t), time, fval_α, Y)
 		else
-			output_functions.trim!(output, t)
 			@printf(
 				"Max round reached or insufficient descent, stopping early at epoch %d.\n",
 				t - 1
