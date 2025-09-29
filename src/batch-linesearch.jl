@@ -29,9 +29,10 @@ end
 function projected_gradient_descent(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
+	;
 	loss_func::Function,
 	gradient::Function,
-	loss_and_gradient::Function = x -> (loss_func(x), gradient(x));
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
 	armijo_params::ArmijoParams,
 	output_functions::OutputFunctions = output_functions,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
@@ -120,10 +121,10 @@ end
 function entropic_mirror_descent(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
+	;
 	loss_func::Function,
 	gradient::Function,
 	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
-	;
 	armijo_params::ArmijoParams,
 	output_functions::OutputFunctions = output_functions,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
@@ -198,10 +199,10 @@ end
 function frank_wolfe(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
+	;
 	loss_func::Function,
 	gradient::Function,
 	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
-	;
 	armijo_params::ArmijoParams,
 	output_functions::OutputFunctions = output_functions,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
@@ -284,10 +285,10 @@ end
 function bw_rgd(
 	x_init::Hermitian{T},
 	n_epoch::Integer,
+	;
 	loss_func::Function,
 	gradient::Function,
 	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
-	;
 	armijo_params::ArmijoParams,
 	output_functions::OutputFunctions = output_functions,
 )::Tuple{Hermitian{T},Dict{String,Any}} where {T<:Number}
@@ -366,10 +367,10 @@ end
 function sphere_rgd(
 	x_init::Matrix{T},
 	n_epoch::Integer,
+	;
 	loss_func::Function,
 	gradient::Function,
 	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
-	;
 	armijo_params::ArmijoParams,
 	output_functions::OutputFunctions = output_functions,
 )::Tuple{Matrix{T},Dict{String,Any}} where {T<:Number}

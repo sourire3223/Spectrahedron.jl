@@ -13,12 +13,12 @@ end
 function sphere_srgd(
 	x_init::Matrix{T},
 	n_epochs::Integer,
+	;
 	data::Array{T,3},
 	loss_func::Function,
 	gradient::Function,
-	loss_and_gradient::Function = (x, data) -> (loss_func(x, data), gradient(x, data)),
-	;
-	stepsize::Real = 100.0,
+	loss_and_gradient::Function = x -> (loss_func(x), gradient(x)),
+	stepsize::Real = 1e2,
 	output_functions::OutputFunctions = output_functions,
 )::Tuple{Matrix{T},Dict{String,Any}} where {T<:Number}
 	name = "Sphere-RGD"

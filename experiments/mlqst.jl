@@ -69,7 +69,6 @@ problem_setup_time = @elapsed begin
 	loss_and_gradient_bm_ =
 		(halved::Matrix{<:Complex}) ->
 			@inline loss_and_gradient_bm(halved, frequency, POVMs)
-
 end
 @printf("Problem setup time: %.6f seconds\n", problem_setup_time)
 
@@ -83,129 +82,104 @@ halved_init4 ./= norm(halved_init4)
 halved_init16 = randn(ComplexF64, d, 16)
 halved_init16 ./= norm(halved_init16)
 
-# runtime dispatch
-warmup_time = @elapsed begin
-	projected_gradient_descent(
-		ρ_init,
-		1,
-		loss_func_,
-		gradient_,
-		loss_and_gradient_;
-		armijo_params = (α0 = 1e3, r = 0.5, τ = 0.8),
-	)
-	entropic_mirror_descent(
-		ρ_init,
-		1,
-		loss_func_,
-		gradient_,
-		loss_and_gradient_;
-		armijo_params = (α0 = 1e3, r = 0.5, τ = 0.8),
-	)
-	frank_wolfe(
-		ρ_init,
-		1,
-		loss_func_,
-		gradient_,
-		loss_and_gradient_;
-		armijo_params = (α0 = 0.99, r = 0.5, τ = 0.8),
-	)
-	bw_rgd(
-		ρ_init,
-		1,
-		loss_func_,
-		gradient_,
-		loss_and_gradient_;
-		armijo_params = (α0 = 1e3, r = 0.5, τ = 0.8),
-	)
-	sphere_rgd(
-		halved_init1,
-		1,
-		loss_func_bm_,
-		gradient_bm_,
-		loss_and_gradient_bm_;
-		armijo_params = (α0 = 1e3, r = 0.5, τ = 0.8),
-	)
-	sphere_rgd(
-		halved_init4,
-		1,
-		loss_func_bm_,
-		gradient_bm_,
-		loss_and_gradient_bm_;
-		armijo_params = (α0 = 1e3, r = 0.5, τ = 0.8),
-	)
-	sphere_rgd(
-		halved_init16,
-		1,
-		loss_func_bm_,
-		gradient_bm_,
-		loss_and_gradient_bm_;
-		armijo_params = (α0 = 1e3, r = 0.5, τ = 0.8),
-	)
-	sphere_srgd(halved_init16, 1, data, loss_func_bm, gradient_bm)
-end
-@printf("Warm-up time: %.6f seconds\n", warmup_time)
 
-
-
-
-# Define experiments as (name, function, arguments..., kwargs)
 experiments = [
 	(
 		name = "PGD",
 		algo = projected_gradient_descent,
-		args = (ρ_init, n_epochs, loss_func_, gradient_, loss_and_gradient_),
-		kwargs = Dict(:armijo_params => (α0 = 120.0, r = 0.5, τ = 0.5)),
+		args = (ρ_init, n_epochs),
+		kwargs = Dict(
+			:loss_func => loss_func_,
+			:gradient => gradient_,
+			:loss_and_gradient => loss_and_gradient_,
+			:armijo_params => (α0 = 120.0, r = 0.5, τ = 0.5),
+		),
 	),
 	(
 		name = "EMD",
 		algo = entropic_mirror_descent,
-		args = (ρ_init, n_epochs, loss_func_, gradient_, loss_and_gradient_),
-		kwargs = Dict(:armijo_params => (α0 = 1000.0, r = 0.5, τ = 0.5)), # don't exceed 709 since exp(710) = Inf
+		args = (ρ_init, n_epochs),
+		kwargs = Dict(
+			:loss_func => loss_func_,
+			:gradient => gradient_,
+			:loss_and_gradient => loss_and_gradient_,
+			:armijo_params => (α0 = 1000.0, r = 0.5, τ = 0.5),
+		), # don't exceed 709 since exp(710) = Inf
 	),
 	(
 		name = "FW",
 		algo = frank_wolfe,
-		args = (ρ_init, n_epochs, loss_func_, gradient_, loss_and_gradient_),
-		kwargs = Dict(:armijo_params => (α0 = 1 - 1e-12, r = 0.8, τ = 0.5)),
+		args = (ρ_init, n_epochs),
+		kwargs = Dict(
+			:loss_func => loss_func_,
+			:gradient => gradient_,
+			:loss_and_gradient => loss_and_gradient_,
+			:armijo_params => (α0 = 1 - 1e-12, r = 0.8, τ = 0.5),
+		),
 	),
 	(
 		name = "BW-RGD",
 		algo = bw_rgd,
-		args = (ρ_init, n_epochs, loss_func_, gradient_, loss_and_gradient_),
-		kwargs = Dict(:armijo_params => (α0 = 1e2, r = 0.5, τ = 0.2)),
+		args = (ρ_init, n_epochs),
+		kwargs = Dict(
+			:loss_func => loss_func_,
+			:gradient => gradient_,
+			:loss_and_gradient => loss_and_gradient_,
+			:armijo_params => (α0 = 1e2, r = 0.5, τ = 0.2),
+		),
 	),
 	(
 		name = "Sphere-RGD-1",
 		algo = sphere_rgd,
-		args = (halved_init1, n_epochs, loss_func_bm_, gradient_bm_, loss_and_gradient_bm_),
-		kwargs = Dict(:armijo_params => (α0 = 1e2, r = 0.5, τ = 0.2)),
+		args = (halved_init1, n_epochs),
+		kwargs = Dict(
+			:loss_func => loss_func_bm_,
+			:gradient => gradient_bm_,
+			:loss_and_gradient => loss_and_gradient_bm_,
+			:armijo_params => (α0 = 1e2, r = 0.5, τ = 0.2),
+		),
 	),
 	(
 		name = "Sphere-RGD-4",
 		algo = sphere_rgd,
-		args = (halved_init4, n_epochs, loss_func_bm_, gradient_bm_, loss_and_gradient_bm_),
-		kwargs = Dict(:armijo_params => (α0 = 1e2, r = 0.5, τ = 0.2)),
+		args = (halved_init4, n_epochs),
+		kwargs = Dict(
+			:loss_func => loss_func_bm_,
+			:gradient => gradient_bm_,
+			:loss_and_gradient => loss_and_gradient_bm_,
+			:armijo_params => (α0 = 1e2, r = 0.5, τ = 0.2),
+		),
 	),
 	(
 		name = "Sphere-RGD-16",
 		algo = sphere_rgd,
-		args = (
-			halved_init16,
-			n_epochs,
-			loss_func_bm_,
-			gradient_bm_,
-			loss_and_gradient_bm_,
+		args = (halved_init16, n_epochs),
+		kwargs = Dict(
+			:loss_func => loss_func_bm_,
+			:gradient => gradient_bm_,
+			:loss_and_gradient => loss_and_gradient_bm_,
+			:armijo_params => (α0 = 1e2, r = 0.5, τ = 0.2),
 		),
-		kwargs = Dict(:armijo_params => (α0 = 1e2, r = 0.5, τ = 0.2)),
 	),
 	(
 		name = "Sphere-SRGD-16",
 		algo = sphere_srgd,
-		args = (halved_init16, 5, data, loss_func_bm, gradient_bm),
-		kwargs = Dict(:stepsize => 100.0),
+		args = (halved_init16, 5),
+		kwargs = (
+			:data => data,
+			:loss_func => loss_func_bm,
+			:gradient => gradient_bm,
+			:stepsize => 100.0,
+		),
 	),
 ]
-
+# Warm-up (runtime dispatch, JIT)
+warmup_time = @elapsed begin
+	for (name, algo, args, kwargs) in experiments
+		_, result = algo(args[1], 1; kwargs...)
+	end
+end
+@printf("Warm-up time: %.6f seconds\n", warmup_time)
 
 # Run algorithms
 
