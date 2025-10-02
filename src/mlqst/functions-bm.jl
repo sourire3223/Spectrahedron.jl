@@ -1,4 +1,5 @@
-include("./mlqst.jl")
+using LinearAlgebra
+include("./functions.jl")
 # throughout the code, ρ = halved * halved'
 
 function get_random_state_halved(

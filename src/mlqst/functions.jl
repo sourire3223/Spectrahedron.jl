@@ -5,8 +5,8 @@ using Statistics
 
 
 function calc_fidelity(ρ::Hermitian{T}, σ::Hermitian{T})::real(T) where {T<:Complex}
-	S::Hermitian{T} = sqrt(σ)
-	return real((tr(sqrt(S * ρ * S')))^2)
+	S::Hermitian{T} = sqrt(ρ)
+	return real((tr(sqrt(S * σ * S')))^2)
 end
 
 
@@ -29,6 +29,14 @@ function get_w_state(n_qubits::Integer)::Hermitian{ComplexF64}
 	return Hermitian(W)
 end
 
+function get_ghz_state(n_qubits::Integer)::Hermitian{ComplexF64}
+	ghz = zeros(ComplexF64, 2^n_qubits)
+	ghz[1] = 1 / sqrt(2)
+	ghz[end] = 1 / sqrt(2)
+	GHZ = ghz * ghz'
+	GHZ = GHZ / tr(GHZ)
+	return Hermitian(GHZ)
+end
 
 function get_pauli_observables(n_qubits::Integer)::Array{ComplexF64,3}
 	# Pauli matrices

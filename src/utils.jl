@@ -29,9 +29,9 @@ function push_output!(
 end
 
 function pop_output!(output::Output)::Nothing
-	pop!(output["n_epoch"])
-	pop!(output["fval"])
-	pop!(output["elapsed_time"])
+	for (_, v) in output
+		pop!(v)
+	end
 end
 
 
@@ -50,7 +50,7 @@ function update_output!(
 	output["elapsed_time"][index] = time
 
 	if verbose
-		@printf("%.1f\t%.2e\t%.8e\n", n_epoch, time, fval)
+		@printf("%.1f (%.2fs): loss=%.8e\n", n_epoch, time, fval)
 	end
 end
 
@@ -93,10 +93,6 @@ function write_output!(io::IO, output::Dict)
 end
 
 
-const OutputFunctions = @NamedTuple{
-	init::typeof(init_output),
-	push!::typeof(push_output!),
-	pop!::typeof(pop_output!),
-}
+const OutputFunctions = @NamedTuple{init::Function, push!::Function, pop!::Function}
 const output_functions::OutputFunctions =
 	(init = init_output, push! = push_output!, pop! = pop_output!)

@@ -1,8 +1,8 @@
 using Printf
 using TimerOutputs
 using LinearAlgebra
-include("./math-utils.jl")
-include("./utils.jl")
+include("../math-utils.jl")
+include("../utils.jl")
 
 
 function sphere_tangent(x::Matrix{T}, v::Matrix{T}) where {T<:Number}
@@ -156,7 +156,7 @@ function trust_region_tCG(
 		time = TimerOutputs.time(to["iteration"]) * 1e-9
 		fval = ρ > ρ′ ? fval_η : fval
 		@inline output_functions.push!(output, float(t), time, fval, Hermitian(Y * Y'))
-		if norm(gʳ) < 1e-12
+		if norm(gʳ) < 1e-8
 			break
 		end
 	end

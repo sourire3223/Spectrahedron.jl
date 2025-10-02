@@ -3,8 +3,10 @@ using KrylovKit
 using LinearAlgebra
 using Printf
 using TimerOutputs
-include("./utils.jl")
-include("./math-utils.jl")
+
+
+include("../utils.jl")
+include("../math-utils.jl")
 
 
 const ArmijoParams = @NamedTuple{α0::Float64, r::Float64, τ::Float64}
@@ -47,11 +49,11 @@ function projected_gradient_descent(
 	∇f = gradient
 	f_and_∇f = loss_and_gradient # assume faster
 
-	ρ = x_init
+	ρ::Hermitian{T} = copy(x_init)
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
 
-	@inline output_functions.push!(output, 0.0, 0.0, f(ρ))
+	@inline output_functions.push!(output, 0.0, 0.0, f(ρ), ρ)
 	stop_early = false
 	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
@@ -118,18 +120,17 @@ function feasible_direction_pgd(
 	∇f = gradient
 	f_and_∇f = loss_and_gradient # assume faster
 
-	ρ = x_init
+	ρ::Hermitian{T} = copy(x_init)
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
 
-	@inline output_functions.push!(output, 0.0, 0.0, f(ρ))
+	@inline output_functions.push!(output, 0.0, 0.0, f(ρ), ρ)
 	stop_early = false
 	@inbounds for t in 1:n_epoch
 		@timeit to "iteration" begin
 			fval, g = f_and_∇f(ρ)
 			# Armijo line search
-			α = α0
-			ρα = ρ - α * g
+			ρα = ρ - α0 * g
 			ρα .= @inline euclidean_projection(ρα)
 			d = ρα - ρ
 			fval_α = f(ρα)
@@ -210,7 +211,7 @@ function entropic_mirror_descent(
 	∇f = gradient
 	f_and_∇f = loss_and_gradient # assume faster
 
-	ρ = x_init
+	ρ = copy(x_init)
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
 	@inline output_functions.push!(output, 0.0, 0.0, f(ρ), ρ)
@@ -289,7 +290,7 @@ function frank_wolfe(
 	∇f = gradient
 	f_and_∇f = loss_and_gradient # assume faster
 
-	ρ = x_init
+	ρ = copy(x_init)
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
 	@inline output_functions.push!(output, 0.0, 0.0, f(ρ), ρ)
@@ -334,6 +335,15 @@ function frank_wolfe(
 	time = TimerOutputs.time(to["iteration"]) * 1e-9
 	@printf("Elapsed time: %.6f seconds\n", time)
 	if !is_density_matrix(ρ)
+		if !ishermitian(ρ)
+			@warn "The output is not Hermitian."
+		end
+		if !isposdef(ρ)
+			@warn "The output is not positive semidefinite."
+		end
+		if abs(tr(ρ) - 1) > 1e-8
+			@warn "The output does not have unit trace."
+		end
 		@warn "The output is not a density matrix."
 	end
 
@@ -374,7 +384,7 @@ function bw_rgd(
 	∇f = gradient
 	f_and_∇f = loss_and_gradient # assume faster
 
-	ρ = x_init
+	ρ = copy(x_init)
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
 	@inline output_functions.push!(output, 0.0, 0.0, f(ρ), ρ)
@@ -456,10 +466,10 @@ function sphere_rgd(
 	∇f = gradient
 	f_and_∇f = loss_and_gradient # assume faster
 
-	Y = x_init
+	Y = copy(x_init)
 
 	α0, r, τ = armijo_params.α0, armijo_params.r, armijo_params.τ
-	@inline output_functions.push!(output, 0.0, 0.0, f(Y), Y)
+	@inline output_functions.push!(output, 0.0, 0.0, f(Y), Hermitian(Y * Y'))
 	stop_early = false
 
 	@inbounds for t in 1:n_epoch
@@ -491,7 +501,13 @@ function sphere_rgd(
 		# update output after step
 		if !stop_early
 			time = TimerOutputs.time(to["iteration"]) * 1e-9
-			@inline output_functions.push!(output, float(t), time, fval_α, Y)
+			@inline output_functions.push!(
+				output,
+				float(t),
+				time,
+				fval_α,
+				Hermitian(Y * Y'),
+			)
 		else
 			@printf(
 				"Max round reached or insufficient descent, stopping early at epoch %d.\n",

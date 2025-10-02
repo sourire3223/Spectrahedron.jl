@@ -1,6 +1,6 @@
 using LinearAlgebra
 
-function is_density_matrix(ρ::AbstractMatrix{T}, eps::Real = 1e-12)::Bool where {T<:Number}
+function is_density_matrix(ρ::AbstractMatrix{T}, eps::Real = 1e-8)::Bool where {T<:Number}
 	# Hermitian check
 	ishermitian(ρ) || return false
 
@@ -8,5 +8,5 @@ function is_density_matrix(ρ::AbstractMatrix{T}, eps::Real = 1e-12)::Bool where
 	isposdef(ρ + eps * I) || return false
 
 	# Trace normalization
-	return isapprox(real(tr(ρ)), 1.0; atol = eps, rtol = 0)
+	return isapprox(real(tr(ρ)), 1.0; atol = eps)
 end
